@@ -69,10 +69,16 @@ async function etsyFetch<T>(
       } catch {
         // not JSON
       }
+      // Build a headers map for ApiError (for retry-after support)
+      const resHeaders: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        resHeaders[key.toLowerCase()] = value;
+      });
       throw new ApiError(
         `Etsy API ${method} ${path} failed: ${res.status} ${res.statusText}`,
         res.status,
         parsed,
+        resHeaders,
       );
     }
 
@@ -182,11 +188,22 @@ export async function getShop(
 /**
  * Fetch receipts with automatic pagination.
  * Yields each batch as it arrives.
+ *
+ * Filters:
+ * - minCreated / maxCreated: filter by creation time
+ * - minLastModified / maxLastModified: filter by last modification (catches refunds, cancellations)
  */
 export async function* iterateReceipts(
   accessToken: string,
   shopId: string | number,
-  options: { minCreated?: number; maxCreated?: number } = {},
+  options: {
+    minCreated?: number;
+    maxCreated?: number;
+    minLastModified?: number;
+    maxLastModified?: number;
+    wasShipped?: boolean;
+    wasDelivered?: boolean;
+  } = {},
 ): AsyncGenerator<EtsyReceipt[], void, void> {
   const limit = 100;
   let offset = 0;
@@ -200,6 +217,10 @@ export async function* iterateReceipts(
     };
     if (options.minCreated) params.min_created = options.minCreated;
     if (options.maxCreated) params.max_created = options.maxCreated;
+    if (options.minLastModified) params.min_last_modified = options.minLastModified;
+    if (options.maxLastModified) params.max_last_modified = options.maxLastModified;
+    if (options.wasShipped !== undefined) params.was_shipped = String(options.wasShipped);
+    if (options.wasDelivered !== undefined) params.was_delivered = String(options.wasDelivered);
 
     const res = await etsyFetch<EtsyReceiptsResponse>(
       `/shops/${shopId}/receipts`,
@@ -212,7 +233,7 @@ export async function* iterateReceipts(
     yield res.results;
     offset += res.results.length;
 
-    // Safety: prevent infinite loop
+    // Safety: prevent infinite loop (Etsy offset cap is 12000)
     if (offset > 10000) {
       logger.warn("Reached 10k receipt limit, stopping pagination");
       break;

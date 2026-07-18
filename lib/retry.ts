@@ -5,6 +5,8 @@ import { logger } from "./logger";
  *
  * Usage:
  *   const data = await withRetry(() => fetch(url).then(r => r.json()));
+ *
+ * Respects `retry-after` header on 429 responses if present.
  */
 
 export interface RetryOptions {
@@ -49,6 +51,32 @@ function defaultShouldRetry(error: unknown): boolean {
   return false;
 }
 
+/**
+ * Get retry-after delay from an API error (in ms).
+ * Falls back to exponential backoff if not present.
+ */
+function getRetryAfterMs(error: unknown): number | null {
+  if (error && typeof error === "object") {
+    const e = error as { body?: unknown; headers?: Record<string, string> };
+    // Check body for retry-after (some APIs return it in error body)
+    if (e.body && typeof e.body === "object") {
+      const body = e.body as Record<string, unknown>;
+      if (typeof body.retry_after === "number") {
+        return body.retry_after * 1000;
+      }
+    }
+    // Check headers (from response Headers object)
+    if (e.headers && typeof e.headers === "object") {
+      const header = e.headers["retry-after"] || e.headers["Retry-After"];
+      if (header) {
+        const seconds = parseFloat(header);
+        if (!isNaN(seconds)) return seconds * 1000;
+      }
+    }
+  }
+  return null;
+}
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {},
@@ -71,17 +99,29 @@ export async function withRetry<T>(
       if (attempt === maxAttempts || !retryOn(error)) {
         throw error;
       }
-      const baseDelay = Math.min(
-        initialDelayMs * Math.pow(backoffFactor, attempt - 1),
-        maxDelayMs,
-      );
-      // Add ±25% jitter
-      const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1);
-      const delay = Math.round(baseDelay + jitter);
-      logger.warn(`Retry attempt ${attempt}/${maxAttempts - 1}`, {
-        delayMs: delay,
-        error: error instanceof Error ? error.message : String(error),
-      });
+
+      // Prefer retry-after header for 429s, fall back to exponential backoff
+      let delay: number;
+      const retryAfterMs = getRetryAfterMs(error);
+      if (retryAfterMs !== null) {
+        delay = Math.min(retryAfterMs, maxDelayMs);
+        logger.warn(`Retry attempt ${attempt}/${maxAttempts - 1} (retry-after)`, {
+          delayMs: delay,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } else {
+        const baseDelay = Math.min(
+          initialDelayMs * Math.pow(backoffFactor, attempt - 1),
+          maxDelayMs,
+        );
+        // Add ±25% jitter
+        const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1);
+        delay = Math.round(baseDelay + jitter);
+        logger.warn(`Retry attempt ${attempt}/${maxAttempts - 1}`, {
+          delayMs: delay,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       onRetry?.(attempt, error);
       await sleep(delay);
     }
@@ -98,6 +138,7 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public body?: unknown,
+    public headers?: Record<string, string>,
   ) {
     super(message);
     this.name = "ApiError";

@@ -55,10 +55,16 @@ async function afterShipFetch<T>(
       } catch {
         // not JSON
       }
+      // Build a headers map for ApiError (for retry-after support)
+      const resHeaders: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        resHeaders[key.toLowerCase()] = value;
+      });
       throw new ApiError(
         `AfterShip ${method} ${path} failed: ${res.status} ${res.statusText}`,
         res.status,
         parsed,
+        resHeaders,
       );
     }
 

@@ -31,6 +31,7 @@ export const ordersRepository = {
     trackingCarrier?: string | null;
     trackingSlug?: string | null;
     status: OrderStatus;
+    receiptStatus?: string | null;
     deliveryDate?: Date | null;
     shippedDate?: Date | null;
     lastTrackingUpdate?: Date | null;
