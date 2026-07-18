@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/jobs/sync-orders",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/jobs/refresh-tracking",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/jobs/refresh-tokens",
+      "schedule": "*/50 * * * *"
+    },
+    {
+      "path": "/api/jobs/daily-metrics",
+      "schedule": "55 23 * * *"
+    }
+  ]
+}

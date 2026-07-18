@@ -1,0 +1,172 @@
+// =====================================================
+// Etsy Order Tracking Dashboard - Prisma Schema
+// =====================================================
+// Run: npx prisma migrate dev --name init
+//      npx prisma generate
+//      npx prisma db push (for dev without migrations)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================
+// User (single user, but kept as model for future-proofing)
+// =====================================================
+model User {
+  id               String   @id @default(cuid())
+  etsyUserId       String   @unique
+  shopId           String   @unique
+  shopName         String?
+
+  // Encrypted OAuth tokens (AES-256-GCM)
+  accessToken      String   // ciphertext, base64
+  refreshToken     String   // ciphertext, base64
+  accessTokenIv    String   // 12 bytes, base64
+  refreshTokenIv   String
+  accessTokenAuth  String   // 16 bytes auth tag, base64
+  refreshTokenAuth String
+  tokenExpiresAt   DateTime
+  scopes           String   // CSV
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// =====================================================
+// Order (an Etsy receipt)
+// =====================================================
+model Order {
+  id                 String          @id @default(cuid())
+  etsyReceiptId      BigInt          @unique
+  buyerName          String
+  buyerEmail         String?
+  country            String          // ISO-3166-1 alpha-2
+  countryName        String          // Resolved
+  price              Decimal         @db.Decimal(10, 2)
+  currency           String          // ISO-4217
+  createdAt          DateTime        // Etsy timestamp
+
+  // Tracking
+  trackingNumber     String?
+  trackingCarrier    String?         // AfterShip slug
+  trackingSlug       String?         // AfterShip unique slug
+  status             OrderStatus     @default(UNKNOWN)
+  deliveryDate       DateTime?
+  shippedDate        DateTime?
+  lastTrackingUpdate DateTime?
+
+  orderItems         OrderItem[]
+  trackingEvents     TrackingEvent[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([country])
+  @@index([trackingCarrier])
+  @@index([deliveryDate])
+  @@index([lastTrackingUpdate])
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  etsyListingId BigInt
+  title         String
+  quantity      Int
+  price         Decimal  @db.Decimal(10, 2)
+  variation     String?
+
+  @@index([orderId])
+  @@index([etsyListingId])
+}
+
+// =====================================================
+// TrackingEvent (one row per AfterShip checkpoint)
+// =====================================================
+model TrackingEvent {
+  id          String      @id @default(cuid())
+  orderId     String
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status      String      // AfterShip raw tag
+  appStatus   OrderStatus // Mapped via status-mapper
+  description String
+  location    String?
+  eventDate   DateTime
+
+  @@unique([orderId, eventDate, status, location]) // Idempotency
+  @@index([orderId])
+  @@index([eventDate])
+}
+
+// =====================================================
+// SyncLog (audit trail of every background job run)
+// =====================================================
+model SyncLog {
+  id              String     @id @default(cuid())
+  type            SyncType
+  status          SyncStatus @default(RUNNING)
+  startedAt       DateTime   @default(now())
+  finishedAt      DateTime?
+  ordersSynced    Int        @default(0)
+  trackingUpdated Int        @default(0)
+  errorsCount     Int        @default(0)
+  errorMessage    String?    @db.Text
+  metadata        Json?
+
+  @@index([type, startedAt])
+  @@index([status, startedAt])
+}
+
+// =====================================================
+// DailyMetric (pre-computed analytics, source for charts)
+// =====================================================
+model DailyMetric {
+  id              String   @id @default(cuid())
+  date            DateTime @unique @db.Date
+  totalOrders     Int      @default(0)
+  delivered       Int      @default(0)
+  inTransit       Int      @default(0)
+  exception       Int      @default(0)
+  preTransit      Int      @default(0)
+  failedAttempt   Int      @default(0)
+  availablePickup Int      @default(0)
+  avgDeliveryDays Float?
+  totalRevenue    Decimal  @default(0) @db.Decimal(12, 2)
+  byCountry       Json     @default("{}")
+  byCarrier       Json     @default("{}")
+  computedAt      DateTime @default(now())
+
+  @@index([date])
+}
+
+// =====================================================
+// Enums
+// =====================================================
+enum OrderStatus {
+  DELIVERED
+  IN_TRANSIT
+  EXCEPTION
+  PRE_TRANSIT
+  FAILED_ATTEMPT
+  AVAILABLE_FOR_PICKUP
+  UNKNOWN
+}
+
+enum SyncType {
+  ORDERS_SYNC
+  TRACKING_REFRESH
+  TOKEN_REFRESH
+  DAILY_METRICS
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
