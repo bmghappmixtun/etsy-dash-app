@@ -30,9 +30,10 @@ const envSchema = z.object({
     "transactions_r transactions_w listings_r profile_r",
   ),
   // Etsy shop/user (look up via API or hardcode for single-user apps)
-  ETSY_SHOP_ID: devString(""),
-  ETSY_USER_ID: devString(""),
-  ETSY_SHOP_NAME: devString(""),
+  // Optional in dev, required in prod only when OAuth is actually used.
+  ETSY_SHOP_ID: z.string().optional().default(""),
+  ETSY_USER_ID: z.string().optional().default(""),
+  ETSY_SHOP_NAME: z.string().optional().default(""),
 
   // AfterShip
   AFTERSHIP_API_KEY: devString("dev_aftership_key_placeholder"),
