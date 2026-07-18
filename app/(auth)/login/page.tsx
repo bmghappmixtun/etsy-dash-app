@@ -66,10 +66,12 @@ export default async function LoginPage({ searchParams }: PageProps) {
             className="w-full"
             disabled={!hasCreds}
           >
-            <Link href="/api/auth/etsy">
+            {/* Plain <a> instead of <Link> to avoid Next.js prefetch
+                which causes CORS error on the redirect to Etsy */}
+            <a href="/api/auth/etsy">
               <span>Connect with Etsy</span>
               <ArrowRight className="h-4 w-4" />
-            </Link>
+            </a>
           </Button>
 
           {!hasCreds && (
