@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     );
 
     // Upsert user (single-user: delete + create)
+    // Note: Etsy doesn't return scope in token response, so use env var
     const dbUser = await usersRepository.upsert({
       etsyUserId: userId,
       shopId,
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
       accessToken: enc.accessToken,
       refreshToken: enc.refreshToken,
       tokenExpiresAt,
-      scopes: tokenResponse.scope,
+      scopes: env.ETSY_SCOPES,
     });
 
     // Set session cookie
