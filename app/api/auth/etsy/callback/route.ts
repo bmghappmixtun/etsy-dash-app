@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
       stack: errStack,
     });
     return NextResponse.redirect(
-      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed&msg=${encodeURIComponent(errMsg.slice(0, 200))}`,
+      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed&msg=${encodeURIComponent(errMsg.slice(0, 1500))}`,
     );
   }
 }
