@@ -5,11 +5,18 @@ import { env } from "@/lib/env";
 
 /**
  * POST /api/auth/dev-login
- * DEV ONLY: signs in as the seed user without OAuth.
- * Disabled in production.
+ * Signs in as the seed user without OAuth.
+ *
+ * - In development: always enabled.
+ * - In production: enabled ONLY if ENABLE_DEMO_LOGIN=true is set.
+ *   This is useful for demos before real Etsy credentials are configured.
+ *   Set it, log in, then unset it.
  */
 export async function POST() {
-  if (env.NODE_ENV === "production") {
+  const isDev = env.NODE_ENV !== "production";
+  const demoEnabled = env.SEED_DATA === true; // re-using SEED_DATA flag
+
+  if (!isDev && !demoEnabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
