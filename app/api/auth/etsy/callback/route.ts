@@ -156,11 +156,14 @@ export async function GET(req: NextRequest) {
     // Redirect to dashboard
     return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/dashboard`);
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : '';
     logger.error("OAuth callback failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMsg,
+      stack: errStack,
     });
     return NextResponse.redirect(
-      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed`,
+      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed&msg=${encodeURIComponent(errMsg.slice(0, 200))}`,
     );
   }
 }
