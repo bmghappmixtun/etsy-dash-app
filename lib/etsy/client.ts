@@ -91,20 +91,24 @@ async function etsyFetch<T>(
 // OAuth
 // =====================================================
 
-export function getAuthorizationUrl(state: string): string {
-  // Confidential client flow: no PKCE needed.
-  // We use client_secret in the token exchange, so no code_challenge required.
+export function getAuthorizationUrl(state: string, codeChallenge: string): string {
+  // Etsy OAuth requires PKCE even for confidential clients.
+  // The code_verifier is sent on the token exchange; code_challenge (S256)
+  // is sent on the authorize call.
   const url = new URL("https://www.etsy.com/oauth/connect");
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", env.ETSY_REDIRECT_URI);
   url.searchParams.set("scope", env.ETSY_SCOPES);
   url.searchParams.set("client_id", env.ETSY_API_KEY);
   url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
   return url.toString();
 }
 
 export async function exchangeCodeForToken(
   code: string,
+  codeVerifier: string,
 ): Promise<EtsyTokenResponse> {
   const res = await fetch(
     "https://api.etsy.com/v3/public/oauth/token",
@@ -120,6 +124,7 @@ export async function exchangeCodeForToken(
         client_secret: env.ETSY_SHARED_SECRET,
         code,
         redirect_uri: env.ETSY_REDIRECT_URI,
+        code_verifier: codeVerifier,
       }).toString(),
     },
   );

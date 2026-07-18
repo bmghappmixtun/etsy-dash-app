@@ -5,7 +5,7 @@ import {
   getMe,
   getShop,
 } from "@/lib/etsy/client";
-import { getStateCookieName } from "@/lib/etsy/oauth";
+import { getStateCookieName, getVerifierCookieName } from "@/lib/etsy/oauth";
 import { authService } from "@/lib/services/auth.service";
 import { usersRepository } from "@/lib/repositories/users.repository";
 import { createSession } from "@/lib/session";
@@ -42,9 +42,17 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Read PKCE code_verifier (Etsy requires it on token exchange)
+  const verifierCookie = cookieStore.get(getVerifierCookieName());
+  if (!verifierCookie) {
+    return NextResponse.redirect(
+      `${env.NEXT_PUBLIC_APP_URL}/login?error=missing_verifier`,
+    );
+  }
+
   try {
-    // Exchange code for tokens
-    const tokenResponse = await exchangeCodeForToken(code);
+    // Exchange code for tokens (with PKCE verifier)
+    const tokenResponse = await exchangeCodeForToken(code, verifierCookie.value);
 
     // Get user info
     const user = await getMe(tokenResponse.access_token);
@@ -135,8 +143,9 @@ export async function GET(req: NextRequest) {
     // Set session cookie
     await createSession(dbUser.id);
 
-    // Clear state cookie
+    // Clear state + verifier cookies
     cookieStore.delete(getStateCookieName());
+    cookieStore.delete(getVerifierCookieName());
 
     logger.info("OAuth login complete", {
       userId: dbUser.id,
