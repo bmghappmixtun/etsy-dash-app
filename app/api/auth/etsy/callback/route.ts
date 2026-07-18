@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import {
-  exchangeCodeForToken,
-  getMe,
-  getShop,
-} from "@/lib/etsy/client";
+import { exchangeCodeForToken } from "@/lib/etsy/client";
 import { getStateCookieName, getVerifierCookieName } from "@/lib/etsy/oauth";
 import { authService } from "@/lib/services/auth.service";
 import { usersRepository } from "@/lib/repositories/users.repository";
@@ -54,68 +50,17 @@ export async function GET(req: NextRequest) {
     // Exchange code for tokens (with PKCE verifier)
     const tokenResponse = await exchangeCodeForToken(code, verifierCookie.value);
 
-    // Get user info
-    const user = await getMe(tokenResponse.access_token);
+    // Get user info from env vars (Personal Access apps don't have
+    // profile_r/shops_r scope, so /users/me returns 403). For single-user
+    // apps we hardcode shop_id + user_id in Vercel env.
+    const shopId = env.ETSY_SHOP_ID;
+    const userId = env.ETSY_USER_ID;
+    const shopName = env.ETSY_SHOP_NAME || "Etsy Shop";
 
-    // Get shop info — Etsy user may have multiple shops, get the first one
-    // For single-shop, we need the active shop. v3 doesn't have a "primary
-    // shop" concept, so we list and pick. The receipt endpoint requires
-    // explicit shop_id, so we use /users/me first to find shops.
-    //
-    // Simpler: try to fetch listings to discover shop. Or use the OAuth
-    // scope "profile_r" to get a "primary_shop_id" field. v3 users/me
-    // response has been expanded to include shop info on some endpoints.
-    //
-    // For now, fetch the user and use the first transaction. We'll search
-    // listings to find the shop_id.
-
-    // Get shop_id via /users/me with includes
-    const meWithShop = await fetch(
-      "https://api.etsy.com/v3/application/users/me?includes=Shops",
-      {
-        headers: {
-          Authorization: `Bearer ${tokenResponse.access_token}`,
-          "x-api-key": env.ETSY_API_KEY,
-        },
-        cache: "no-store",
-      },
-    );
-
-    let shopId = "";
-    let shopName = "";
-    if (meWithShop.ok) {
-      const meData = (await meWithShop.json()) as { shops?: { shop_id: number; shop_name: string }[] };
-      if (meData.shops && meData.shops.length > 0) {
-        shopId = String(meData.shops[0].shop_id);
-        shopName = meData.shops[0].shop_name;
-      }
-    }
-
-    if (!shopId) {
-      // Fallback: try to find a shop via listings search
-      const listingsRes = await fetch(
-        `https://api.etsy.com/v3/application/shops?user_id=${user.user_id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${tokenResponse.access_token}`,
-            "x-api-key": env.ETSY_API_KEY,
-          },
-          cache: "no-store",
-        },
+    if (!shopId || !userId) {
+      throw new Error(
+        "ETSY_SHOP_ID and ETSY_USER_ID must be set in environment variables",
       );
-      if (listingsRes.ok) {
-        const data = (await listingsRes.json()) as {
-          results?: { shop_id: number; shop_name: string }[];
-        };
-        if (data.results && data.results.length > 0) {
-          shopId = String(data.results[0].shop_id);
-          shopName = data.results[0].shop_name;
-        }
-      }
-    }
-
-    if (!shopId) {
-      throw new Error("Could not determine shop_id from Etsy account");
     }
 
     // Encrypt tokens
@@ -131,7 +76,7 @@ export async function GET(req: NextRequest) {
 
     // Upsert user (single-user: delete + create)
     const dbUser = await usersRepository.upsert({
-      etsyUserId: String(user.user_id),
+      etsyUserId: userId,
       shopId,
       shopName,
       accessToken: enc.accessToken,

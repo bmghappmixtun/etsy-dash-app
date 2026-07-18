@@ -29,6 +29,10 @@ const envSchema = z.object({
   ETSY_SCOPES: devString(
     "transactions_r transactions_w listings_r profile_r",
   ),
+  // Etsy shop/user (look up via API or hardcode for single-user apps)
+  ETSY_SHOP_ID: devString(""),
+  ETSY_USER_ID: devString(""),
+  ETSY_SHOP_NAME: devString(""),
 
   // AfterShip
   AFTERSHIP_API_KEY: devString("dev_aftership_key_placeholder"),
