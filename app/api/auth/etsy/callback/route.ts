@@ -103,13 +103,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/dashboard`);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    const errStack = err instanceof Error ? err.stack : '';
-    logger.error("OAuth callback failed", {
-      error: errMsg,
-      stack: errStack,
-    });
+    logger.error("OAuth callback failed", { error: errMsg });
     return NextResponse.redirect(
-      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed&msg=${encodeURIComponent(errMsg.slice(0, 1500))}`,
+      `${env.NEXT_PUBLIC_APP_URL}/login?error=oauth_failed`,
     );
   }
 }
