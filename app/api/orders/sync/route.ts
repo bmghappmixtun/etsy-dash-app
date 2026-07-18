@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { runSyncOrders } from "@/lib/jobs/sync-orders";
 import { hasRealEtsyCredentials } from "@/lib/env";
@@ -6,8 +6,12 @@ import { hasRealEtsyCredentials } from "@/lib/env";
 /**
  * POST /api/orders/sync
  * Manually trigger an orders sync. Used from /settings page.
+ *
+ * Body (optional): { days?: number } — limit sync to orders created in
+ * the last N days. Defaults to full sync (first run) or 7 days
+ * (incremental).
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,9 +27,19 @@ export async function POST() {
     );
   }
 
+  let days: number | undefined;
   try {
-    const result = await runSyncOrders();
-    return NextResponse.json({ success: true, ...result });
+    const body = await req.json().catch(() => ({}));
+    if (typeof body.days === "number" && body.days > 0) {
+      days = body.days;
+    }
+  } catch {
+    // no body, use default
+  }
+
+  try {
+    const result = await runSyncOrders({ days });
+    return NextResponse.json({ success: true, days, ...result });
   } catch (err) {
     return NextResponse.json(
       {

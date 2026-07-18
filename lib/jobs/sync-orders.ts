@@ -9,10 +9,12 @@ import { logger } from "../logger";
  *
  * First run: fetches everything (no filters)
  * Subsequent runs: uses min_last_modified to catch updates (refunds, cancellations)
+ * With { days: N }: limits to orders created in the last N days (for backfill
+ * of partial history, e.g. days=90)
  */
-export async function runSyncOrders() {
+export async function runSyncOrders(options: { days?: number } = {}) {
   const log = await syncLogsRepository.start("ORDERS_SYNC");
-  logger.info("Sync orders started", { logId: log.id });
+  logger.info("Sync orders started", { logId: log.id, days: options.days });
 
   try {
     // Find the most recently updated order to know the cursor
@@ -24,17 +26,29 @@ export async function runSyncOrders() {
     const userCount = await prisma.user.count();
     const isFirstRun = userCount === 0 || !latestOrder;
 
-    // If not first run, sync only orders modified in the last 7 days
-    // (Etsy's `min_last_modified` filter)
-    const sevenDaysAgo = Math.floor(
-      (Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000,
-    );
+    let syncFilter: { minCreated?: number; minLastModified?: number } = {};
+    let syncWindow: string;
 
-    const result = await ordersService.syncFromEtsy(
-      isFirstRun
-        ? {} // no filter, full sync
-        : { minLastModified: sevenDaysAgo }, // incremental: last 7 days
-    );
+    if (typeof options.days === "number" && options.days > 0) {
+      // Backfill mode: limit by creation date
+      const minCreated = Math.floor(
+        (Date.now() - options.days * 24 * 60 * 60 * 1000) / 1000,
+      );
+      syncFilter = { minCreated };
+      syncWindow = `last ${options.days} days (backfill)`;
+    } else if (isFirstRun) {
+      syncFilter = {};
+      syncWindow = "all (first run)";
+    } else {
+      // Incremental: orders modified in the last 7 days
+      const sevenDaysAgo = Math.floor(
+        (Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000,
+      );
+      syncFilter = { minLastModified: sevenDaysAgo };
+      syncWindow = "last 7 days (incremental)";
+    }
+
+    const result = await ordersService.syncFromEtsy(syncFilter);
 
     // Push any missing trackings to AfterShip
     const trackingResult = await trackingService.pushMissingTrackings(50);
@@ -52,8 +66,9 @@ export async function runSyncOrders() {
       errorsCount: result.errorsCount,
       metadata: {
         isFirstRun,
+        days: options.days,
         trackingsPushed: trackingResult.pushed,
-        syncWindow: isFirstRun ? "all" : "last 7 days",
+        syncWindow,
       },
     });
 
@@ -61,6 +76,7 @@ export async function runSyncOrders() {
       synced: result.totalSynced,
       errors: result.errorsCount,
       trackingsPushed: trackingResult.pushed,
+      syncWindow,
     });
 
     return { synced: result.totalSynced, errors: result.errorsCount };
