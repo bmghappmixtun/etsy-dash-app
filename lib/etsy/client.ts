@@ -42,7 +42,7 @@ async function etsyFetch<T>(
   }
 
   const headers: Record<string, string> = {
-    "x-api-key": env.ETSY_API_KEY,
+    "x-api-key": `${env.ETSY_API_KEY}:${env.ETSY_SHARED_SECRET}`,
     Accept: "application/json",
   };
   if (accessToken) {
