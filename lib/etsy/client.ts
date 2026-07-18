@@ -92,16 +92,14 @@ async function etsyFetch<T>(
 // =====================================================
 
 export function getAuthorizationUrl(state: string): string {
+  // Confidential client flow: no PKCE needed.
+  // We use client_secret in the token exchange, so no code_challenge required.
   const url = new URL("https://www.etsy.com/oauth/connect");
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", env.ETSY_REDIRECT_URI);
   url.searchParams.set("scope", env.ETSY_SCOPES);
   url.searchParams.set("client_id", env.ETSY_API_KEY);
   url.searchParams.set("state", state);
-  url.searchParams.set(
-    "code_challenge",
-    "code_challenge_method=plain",
-  ); // Etsy supports plain PKCE; we don't actually use it but Etsy recommends setting it
   return url.toString();
 }
 
