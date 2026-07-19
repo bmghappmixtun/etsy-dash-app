@@ -41,13 +41,23 @@ export const trackingService = {
           track_info: accepted.track_info,
         };
       }
+      // Handle "already registered" as success
       if (result.rejected.length > 0) {
         const rej = result.rejected[0] as {
+          number?: string;
+          carrier?: number;
           error?: { code?: number; message?: string };
         };
+        // -18019901 = already registered (success case)
+        if (rej.error?.code === -18019901) {
+          return {
+            slug: rej.carrier ? String(rej.carrier) : null,
+            track_info: undefined,
+          };
+        }
         logger.warn("17TRACK rejected tracking", {
           number: order.trackingNumber,
-          error: rej?.error,
+          error: rej.error,
         });
         return null;
       }
@@ -101,7 +111,13 @@ export const trackingService = {
         ]);
 
         if (result.accepted.length === 0) {
-          errors++;
+          // Not found — might be invalid number or not registered
+          if (result.rejected.length > 0) {
+            logger.debug("17TRACK getTrackInfo rejected", {
+              number: order.trackingNumber,
+              error: result.rejected[0].error,
+            });
+          }
           continue;
         }
 
