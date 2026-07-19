@@ -16,6 +16,16 @@ const STATUS_CHART_COLORS: Record<OrderStatus, string> = {
   FAILED_ATTEMPT: "#f97316",
   AVAILABLE_FOR_PICKUP: "#8b5cf6",
   UNKNOWN: "#71717a",
+  // New statuses from 17TRACK integration (July 2026)
+  OUT_FOR_DELIVERY: "#22c55e",
+  CUSTOMS_HOLD: "#eab308",
+  RETURNING: "#a855f7",
+  RETURNED: "#7c3aed",
+  DAMAGED: "#dc2626",
+  LOST: "#991b1b",
+  REJECTED: "#ef4444",
+  DESTROYED: "#525252",
+  CANCELLED: "#737373",
 };
 
 interface DataPoint {

@@ -213,6 +213,15 @@ export const ordersRepository = {
       FAILED_ATTEMPT: 0,
       AVAILABLE_FOR_PICKUP: 0,
       UNKNOWN: 0,
+      OUT_FOR_DELIVERY: 0,
+      CUSTOMS_HOLD: 0,
+      RETURNING: 0,
+      RETURNED: 0,
+      DAMAGED: 0,
+      LOST: 0,
+      REJECTED: 0,
+      DESTROYED: 0,
+      CANCELLED: 0,
     };
     for (const c of counts) {
       result[c.status] = c._count.status;
