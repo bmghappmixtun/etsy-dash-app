@@ -1,45 +1,47 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/session";
+import * as tracking17 from "@/lib/tracking17/client";
+import { prisma } from "@/lib/db";
+import { logger } from "@/lib/logger";
+
 /**
- * Push all existing orders with tracking numbers to 17TRACK.
- * Run once after deploying the 17TRACK integration.
- *
- * Usage:
- *   DATABASE_URL=... npx tsx scripts/push-trackings-to-17track.ts
+ * POST /api/admin/push-trackings
+ * One-time batch push of all existing trackings to 17TRACK.
+ * Admin-only. After deploy of 17TRACK integration, call this once.
  */
-import { prisma } from "../lib/db";
-import * as tracking17 from "../lib/tracking17/client";
-import { logger } from "../lib/logger";
+export async function POST(req: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-const BATCH_SIZE = 40; // 17TRACK max 40 per request
-
-async function main() {
-  console.log("Pushing all orders with tracking to 17TRACK...");
-
+  // Optional: limit to active user only (single-user app)
   const total = await prisma.order.count({
     where: { trackingNumber: { not: null } },
   });
-  console.log(`Found ${total} orders with tracking numbers`);
+  console.log(`[push-trackings] Starting batch push of ${total} orders`);
 
   let pushed = 0;
   let skipped = 0;
   let errors = 0;
   let offset = 0;
+  const BATCH = 40;
 
   while (true) {
     const orders = await prisma.order.findMany({
       where: { trackingNumber: { not: null } },
-      take: BATCH_SIZE,
+      take: BATCH,
       skip: offset,
       orderBy: { createdAt: "desc" },
     });
 
     if (orders.length === 0) break;
 
-    // Build request body
     const items = orders
       .filter((o) => o.trackingNumber)
       .map((o) => ({
         number: o.trackingNumber as string,
-        carrier: 0, // auto-detect
+        carrier: 0,
         auto_detection: true,
         tag: `etsy-${o.etsyReceiptId.toString().slice(0, 20)}`,
         remark: `Etsy receipt ${o.etsyReceiptId}`,
@@ -49,26 +51,22 @@ async function main() {
     try {
       const result = await tracking17.registerTrackings(items);
 
-      // Map results back to orders
       const carrierByNumber = new Map<string, number>();
       for (const acc of result.accepted) {
-        if (acc.carrier) {
-          carrierByNumber.set(acc.number, acc.carrier);
-        }
+        if (acc.carrier) carrierByNumber.set(acc.number, acc.carrier);
       }
       for (const rej of result.rejected) {
-        // -18019901 = already registered → use returned carrier
         if (rej.error?.code === -18019901 && rej.carrier) {
           carrierByNumber.set(rej.number, rej.carrier);
         } else {
-          console.warn(
-            `  Rejected ${rej.number} - ${rej.error?.code}: ${rej.error?.message}`,
-          );
+          logger.warn("17TRACK rejected", {
+            number: rej.number,
+            error: rej.error,
+          });
           errors++;
         }
       }
 
-      // Update orders with detected carrier
       for (const order of orders) {
         if (!order.trackingNumber) continue;
         const carrier = carrierByNumber.get(order.trackingNumber);
@@ -87,31 +85,20 @@ async function main() {
         }
       }
     } catch (err) {
-      console.error(
-        `Batch error:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      logger.error("Batch push error", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       errors += orders.length;
     }
 
-    offset += BATCH_SIZE;
-    console.log(
-      `  Progress: ${pushed}/${total} pushed, ${skipped} skipped, ${errors} errors`,
-    );
+    offset += BATCH;
   }
 
-  console.log(
-    `\nDone: ${pushed}/${total} trackings registered (${errors} errors, ${skipped} skipped)`,
-  );
-}
-
-main()
-  .catch((err) => {
-    logger.error("push-trackings-to-17track failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
+  return NextResponse.json({
+    success: true,
+    total,
+    pushed,
+    skipped,
+    errors,
   });
+}
