@@ -106,17 +106,37 @@ export const trackingService = {
 
       // Get current status from 17TRACK
       try {
-        const result = await tracking17.getTrackInfo([
+        // 17TRACK may need a few seconds to propagate registration,
+        // so first try with carrier (most common case). If rejected
+        // as "not registered", try once more without carrier (will work
+        // for tracking numbers that were registered in earlier session).
+        let result = await tracking17.getTrackInfo([
           { number: order.trackingNumber, carrier: Number(carrier) },
         ]);
 
+        // Fallback: try without carrier
+        if (result.accepted.length === 0 && carrier) {
+          result = await tracking17.getTrackInfo([
+            { number: order.trackingNumber },
+          ]);
+        }
+
         if (result.accepted.length === 0) {
-          // Not found — might be invalid number or not registered
+          // Not found — might be invalid number or not yet registered
+          // (17TRACK can take a few seconds to propagate registration)
           if (result.rejected.length > 0) {
-            logger.debug("17TRACK getTrackInfo rejected", {
-              number: order.trackingNumber,
-              error: result.rejected[0].error,
-            });
+            const errCode = result.rejected[0].error?.code;
+            if (errCode === -18019902) {
+              // Not registered yet — skip silently, next refresh will pick up
+              logger.debug("17TRACK tracking not yet registered", {
+                number: order.trackingNumber,
+              });
+            } else {
+              logger.debug("17TRACK getTrackInfo rejected", {
+                number: order.trackingNumber,
+                error: result.rejected[0].error,
+              });
+            }
           }
           continue;
         }
