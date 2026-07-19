@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { hasRealAfterShipCredentials, hasRealEtsyCredentials } from "@/lib/env";
+import {
+  hasRealAfterShipCredentials,
+  hasRealEtsyCredentials,
+  hasRealTracking17Credentials,
+} from "@/lib/env";
 import { syncLogsRepository } from "@/lib/repositories/sync-logs.repository";
 import { ping as afterShipPing } from "@/lib/aftership/client";
+import { ping as tracking17Ping } from "@/lib/tracking17/client";
 
 /**
  * GET /api/health
@@ -12,15 +17,21 @@ export async function GET() {
   const checks = await Promise.allSettled([
     // DB
     prisma.$queryRaw`SELECT 1`.then(() => ({ status: "up" as const })),
-    // AfterShip
+    // AfterShip (legacy)
     hasRealAfterShipCredentials()
       ? afterShipPing().then((ok) =>
           ok ? ({ status: "up" as const }) : ({ status: "down" as const }),
         )
       : Promise.resolve({ status: "unconfigured" as const }),
+    // 17TRACK (primary)
+    hasRealTracking17Credentials()
+      ? tracking17Ping().then((ok) =>
+          ok ? ({ status: "up" as const }) : ({ status: "down" as const }),
+        )
+      : Promise.resolve({ status: "unconfigured" as const }),
   ]);
 
-  const [dbResult, afterShipResult] = checks;
+  const [dbResult, afterShipResult, tracking17Result] = checks;
   const etsyConfigured = hasRealEtsyCredentials();
 
   // Last sync times
@@ -49,6 +60,17 @@ export async function GET() {
               error: String(
                 afterShipResult.status === "rejected"
                   ? afterShipResult.reason
+                  : "unknown",
+              ),
+            },
+      tracking17:
+        tracking17Result.status === "fulfilled"
+          ? tracking17Result.value
+          : {
+              status: "down",
+              error: String(
+                tracking17Result.status === "rejected"
+                  ? tracking17Result.reason
                   : "unknown",
               ),
             },

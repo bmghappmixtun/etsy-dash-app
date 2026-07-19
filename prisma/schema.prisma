@@ -157,6 +157,16 @@ enum OrderStatus {
   FAILED_ATTEMPT
   AVAILABLE_FOR_PICKUP
   UNKNOWN
+  // New statuses from 17TRACK integration (July 2026)
+  OUT_FOR_DELIVERY
+  CUSTOMS_HOLD       // Exception_Security / DeliveryFailure_Security
+  RETURNING          // Exception_Returning
+  RETURNED           // Exception_Returned
+  DAMAGED            // Exception_Damage
+  LOST               // Exception_Lost
+  REJECTED           // Exception_Rejected / DeliveryFailure_Rejected
+  DESTROYED          // Exception_Destroyed
+  CANCELLED          // Exception_Cancel
 }
 
 enum SyncType {
@@ -164,6 +174,7 @@ enum SyncType {
   TRACKING_REFRESH
   TOKEN_REFRESH
   DAILY_METRICS
+  TRACKING_WEBHOOK   // 17TRACK webhook push events
 }
 
 enum SyncStatus {

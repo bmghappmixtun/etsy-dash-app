@@ -35,11 +35,14 @@ const envSchema = z.object({
   ETSY_USER_ID: z.string().optional().default(""),
   ETSY_SHOP_NAME: z.string().optional().default(""),
 
-  // AfterShip
-  AFTERSHIP_API_KEY: devString("dev_aftership_key_placeholder"),
+  // AfterShip (legacy, optional)
+  AFTERSHIP_API_KEY: z.string().optional().default(""),
   AFTERSHIP_API_BASE: devString(
     "https://api.aftership.com/tracking/2024-07",
   ),
+
+  // 17TRACK (primary tracking service since July 2026)
+  TRACKING17_API_KEY: z.string().optional().default(""),
 
   // Encryption (32 bytes, base64)
   ENCRYPTION_KEY: devString(
@@ -96,5 +99,12 @@ export function hasRealEtsyCredentials(): boolean {
 }
 
 export function hasRealAfterShipCredentials(): boolean {
-  return !env.AFTERSHIP_API_KEY.startsWith("dev_");
+  return (
+    env.AFTERSHIP_API_KEY.length > 0 &&
+    !env.AFTERSHIP_API_KEY.startsWith("dev_")
+  );
+}
+
+export function hasRealTracking17Credentials(): boolean {
+  return env.TRACKING17_API_KEY.length > 0;
 }

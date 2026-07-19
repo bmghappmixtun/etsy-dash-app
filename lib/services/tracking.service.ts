@@ -1,39 +1,59 @@
 import { ordersRepository } from "../repositories/orders.repository";
 import { trackingRepository } from "../repositories/tracking.repository";
 import { authService } from "./auth.service";
-import * as afterShip from "../aftership/client";
-import { mapAfterShipStatus } from "../aftership/status-mapper";
+import * as tracking17 from "../tracking17/client";
+import { mapSeventeenTrackStatus } from "../tracking17/status-mapper";
 import { logger } from "../logger";
+import { hasRealTracking17Credentials } from "../env";
+import { prisma } from "../db";
 import type { Order } from "@prisma/client";
 
 /**
- * Tracking service: pushes tracking numbers to AfterShip and pulls updates.
+ * Tracking service: pushes tracking numbers to 17TRACK and pulls updates.
+ * 17TRACK auto-pushes via webhook (we listen at /api/tracking/webhook).
+ * We also poll for active orders to keep statuses fresh.
  */
 
 const TRACKING_REFRESH_BATCH = 25;
 
 export const trackingService = {
   /**
-   * Push a single order's tracking to AfterShip. Idempotent.
-   * Skipped if order has no tracking number.
+   * Push a single order's tracking to 17TRACK. Idempotent.
+   * Skipped if order has no tracking number or no API key.
    */
   async pushTrackingForOrder(order: Order) {
     if (!order.trackingNumber) return null;
-    if (order.trackingSlug && order.trackingNumber) {
-      // Already pushed — just check status
-      return afterShip.getTrackingByNumber(
-        order.trackingSlug,
-        order.trackingNumber,
-      );
+    if (!hasRealTracking17Credentials()) {
+      logger.warn("17TRACK not configured, skipping push");
+      return null;
     }
+
     try {
-      return await afterShip.createTracking(order.trackingNumber, {
-        slug: order.trackingCarrier ?? undefined,
-        title: `Order ${order.etsyReceiptId}`,
-        orderId: order.id,
+      const result = await tracking17.registerTracking(order.trackingNumber, {
+        tag: `etsy-receipt-${order.etsyReceiptId}`,
+        remark: `Etsy order ${order.etsyReceiptId}`,
       });
+
+      if (result.accepted.length > 0) {
+        const accepted = result.accepted[0];
+        return {
+          slug: accepted.carrier ? String(accepted.carrier) : null,
+          track_info: accepted.track_info,
+        };
+      }
+      if (result.rejected.length > 0) {
+        const rej = result.rejected[0] as {
+          error?: { code?: number; message?: string };
+        };
+        logger.warn("17TRACK rejected tracking", {
+          number: order.trackingNumber,
+          error: rej?.error,
+        });
+        return null;
+      }
+      return null;
     } catch (err) {
-      logger.warn("AfterShip create tracking failed", {
+      logger.warn("17TRACK register tracking failed", {
         orderId: order.id,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -46,6 +66,11 @@ export const trackingService = {
    * Returns counts of updated orders and inserted events.
    */
   async refreshAll() {
+    if (!hasRealTracking17Credentials()) {
+      logger.warn("17TRACK not configured, skipping refresh");
+      return { updated: 0, eventsAdded: 0, errors: 0 };
+    }
+
     const orders = await ordersRepository.listForTrackingRefresh(
       TRACKING_REFRESH_BATCH,
     );
@@ -56,79 +81,99 @@ export const trackingService = {
     for (const order of orders) {
       if (!order.trackingNumber) continue;
 
-      // Make sure we have the carrier slug
-      let slug = order.trackingSlug;
-      if (!slug) {
+      // Make sure tracking is registered
+      let carrier = order.trackingSlug;
+      if (!carrier) {
         const tracking = await this.pushTrackingForOrder(order);
-        if (tracking) {
-          slug = tracking.slug;
+        if (tracking?.slug) {
+          carrier = tracking.slug;
         }
       }
-      if (!slug) {
+      if (!carrier) {
         errors++;
         continue;
       }
 
-      const tracking = await afterShip
-        .getTrackingByNumber(slug, order.trackingNumber)
-        .catch((err) => {
-          logger.warn("getTrackingByNumber failed", {
-            orderId: order.id,
-            error: err instanceof Error ? err.message : String(err),
+      // Get current status from 17TRACK
+      try {
+        const result = await tracking17.getTrackInfo([
+          { number: order.trackingNumber, carrier: Number(carrier) },
+        ]);
+
+        if (result.accepted.length === 0) {
+          errors++;
+          continue;
+        }
+
+        const accepted = result.accepted[0];
+        const trackInfo = accepted.track_info;
+        if (!trackInfo?.latest_status) {
+          continue;
+        }
+
+        const main = trackInfo.latest_status.status;
+        const sub = trackInfo.latest_status.sub_status;
+        const appStatus = mapSeventeenTrackStatus(main, sub);
+
+        // Update order if status changed
+        if (order.status !== appStatus) {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: {
+              status: appStatus,
+              trackingSlug: String(accepted.carrier ?? carrier),
+              lastTrackingUpdate: new Date(),
+              deliveryDate:
+                appStatus === "DELIVERED" ? new Date() : undefined,
+            },
           });
-          return null;
+          updated++;
+        } else {
+          // Just update timestamp
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { lastTrackingUpdate: new Date() },
+          });
+        }
+
+        // Insert latest event
+        if (trackInfo.tracking_event_list?.[0]) {
+          const evt = trackInfo.tracking_event_list[0];
+          await prisma.trackingEvent.create({
+            data: {
+              orderId: order.id,
+              status: evt.sub_status ?? evt.status ?? "Unknown",
+              appStatus,
+              description: evt.description ?? `Status: ${appStatus}`,
+              location: evt.location ?? null,
+              eventDate: evt.time_iso8601
+                ? new Date(evt.time_iso8601)
+                : new Date(),
+            },
+          });
+          eventsAdded++;
+        }
+      } catch (err) {
+        logger.warn("17TRACK getTrackInfo failed", {
+          orderId: order.id,
+          error: err instanceof Error ? err.message : String(err),
         });
-      if (!tracking) {
         errors++;
-        continue;
       }
-
-      // Update order status
-      const newStatus = mapAfterShipStatus(tracking.tag);
-      const updateData: Parameters<typeof ordersRepository.updateTracking>[1] =
-        {
-          status: newStatus,
-          lastTrackingUpdate: new Date(),
-        };
-
-      if (newStatus === "DELIVERED" && tracking.shipment_delivery_date) {
-        updateData.deliveryDate = new Date(tracking.shipment_delivery_date);
-      }
-      if (
-        (newStatus === "IN_TRANSIT" || newStatus === "DELIVERED") &&
-        tracking.shipment_pickup_date &&
-        !order.shippedDate
-      ) {
-        updateData.shippedDate = new Date(tracking.shipment_pickup_date);
-      }
-
-      await ordersRepository.updateTracking(order.id, updateData);
-
-      // Append new events (deduped via @@unique)
-      if (tracking.checkpoints?.length) {
-        const events = tracking.checkpoints
-          .filter((cp) => cp.checkpoint_time)
-          .map((cp) => ({
-            status: cp.tag,
-            appStatus: mapAfterShipStatus(cp.tag),
-            description: cp.message,
-            location: cp.location ?? null,
-            eventDate: new Date(cp.checkpoint_time!),
-          }));
-        eventsAdded += await trackingRepository.appendEvents(order.id, events);
-      }
-
-      updated++;
     }
 
     return { updated, eventsAdded, errors };
   },
 
   /**
-   * Push tracking for newly synced orders (those with no trackingSlug yet).
-   * Called after orders sync.
+   * Push any missing trackings to 17TRACK.
+   * Returns counts of pushed and total attempted.
    */
   async pushMissingTrackings(limit: number = 100) {
+    if (!hasRealTracking17Credentials()) {
+      return { pushed: 0, total: 0 };
+    }
+
     const { prisma } = await import("../db");
     const orders = await prisma.order.findMany({
       where: {
