@@ -160,6 +160,55 @@ export async function changeCarrier(
 }
 
 /**
+ * Change carrier or register if not yet registered.
+ * Handles the "already registered" case by calling changeinfo instead.
+ */
+export async function registerOrChangeCarrier(
+  number: string,
+  desiredCarrier: number,
+  remark?: string,
+): Promise<{ carrier: number; action: "registered" | "changed" | "noop" }> {
+  // First try to register
+  const result = await registerTrackings([
+    {
+      number,
+      carrier: desiredCarrier,
+      auto_detection: false,
+      track_status_notify: true,
+      ...(remark && { remark: remark.slice(0, 1000) }),
+    },
+  ]);
+
+  const accepted = result.accepted[0];
+  if (accepted?.carrier) {
+    return { carrier: accepted.carrier, action: "registered" };
+  }
+
+  // Check rejected - if "already registered" with different carrier, change it
+  const rejected = result.rejected[0] as
+    | { carrier?: number; error?: { code?: number } }
+    | undefined;
+
+  if (rejected?.error?.code === -18019901) {
+    // Already registered - if carrier is different, change it
+    if (rejected.carrier && rejected.carrier !== desiredCarrier) {
+      try {
+        await changeCarrier(number, desiredCarrier, rejected.carrier);
+        return { carrier: desiredCarrier, action: "changed" };
+      } catch (err) {
+        // If change fails, return current carrier
+        return { carrier: rejected.carrier, action: "noop" };
+      }
+    }
+    // Already registered with correct carrier
+    return { carrier: rejected.carrier ?? desiredCarrier, action: "noop" };
+  }
+
+  // Other rejection
+  return { carrier: desiredCarrier, action: "noop" };
+}
+
+/**
  * Delete a tracking registration.
  */
 export async function deleteTracking(

@@ -56,23 +56,43 @@ export async function POST(req: NextRequest) {
         }),
       );
 
-    try {
-      const result = await tracking17.registerTrackings(items);
+    // Track carriers per tracking number (filled by each register call)
+    const carrierByNumber = new Map<string, number>();
 
-      const carrierByNumber = new Map<string, number>();
-      for (const acc of result.accepted) {
-        if (acc.carrier) carrierByNumber.set(acc.number, acc.carrier);
-      }
-      for (const rej of result.rejected) {
-        // -18019901 = already registered → use returned carrier
-        if (rej.error?.code === -18019901 && rej.carrier) {
-          carrierByNumber.set(rej.number, rej.carrier);
+    try {
+      // Use registerOrChangeCarrier per item to handle the "already
+      // registered with wrong carrier" case (calls changeinfo internally).
+      // 17TRACK limits changeinfo to 5 changes per tracking.
+      for (const item of items) {
+        const desiredCarrier = item.carrier ?? 0;
+        if (desiredCarrier === 0) {
+          // No desired carrier - just register with auto-detect
+          const result = await tracking17.registerTrackings([item]);
+          const accepted = result.accepted[0];
+          const rejected = result.rejected[0] as
+            | { carrier?: number; error?: { code?: number } }
+            | undefined;
+          if (accepted?.carrier) {
+            carrierByNumber.set(item.number, accepted.carrier);
+          } else if (rejected?.error?.code === -18019901 && rejected.carrier) {
+            carrierByNumber.set(item.number, rejected.carrier);
+          } else {
+            logger.warn("17TRACK rejected", {
+              number: item.number,
+              error: rejected?.error,
+            });
+            errors++;
+          }
         } else {
-          logger.warn("17TRACK rejected", {
-            number: rej.number,
-            error: rej.error,
-          });
-          errors++;
+          const { carrier, action } =
+            await tracking17.registerOrChangeCarrier(
+              item.number,
+              desiredCarrier,
+              item.remark,
+            );
+          if (action !== "noop" || carrier) {
+            carrierByNumber.set(item.number, carrier);
+          }
         }
       }
 
