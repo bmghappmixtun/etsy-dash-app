@@ -2,6 +2,7 @@ import { ordersRepository } from "../repositories/orders.repository";
 import { trackingRepository } from "../repositories/tracking.repository";
 import { authService } from "./auth.service";
 import * as tracking17 from "../tracking17/client";
+import { buildRegisterItem } from "../tracking17/etsy-mapping";
 import { mapSeventeenTrackStatus } from "../tracking17/status-mapper";
 import { logger } from "../logger";
 import { hasRealTracking17Credentials } from "../env";
@@ -10,8 +11,11 @@ import type { Order } from "@prisma/client";
 
 /**
  * Tracking service: pushes tracking numbers to 17TRACK and pulls updates.
- * 17TRACK auto-pushes via webhook (we listen at /api/tracking/webhook).
- * We also poll for active orders to keep statuses fresh.
+ * Uses the Etsy's trackingCarrier (destination carrier) for proper carrier
+ * identification (not auto-detect, which often misidentifies Tunisia Post
+ * tracking as "La Poste De Tunisia").
+ *
+ * 17TRACK auto-pushes via webhook at /api/tracking/webhook.
  */
 
 const TRACKING_REFRESH_BATCH = 25;
@@ -29,37 +33,43 @@ export const trackingService = {
     }
 
     try {
-      const result = await tracking17.registerTracking(order.trackingNumber, {
-        tag: `etsy-receipt-${order.etsyReceiptId}`,
-        remark: `Etsy order ${order.etsyReceiptId}`,
-      });
+      // Build register item with Etsy carrier mapping
+      const item = buildRegisterItem(
+        order.trackingNumber,
+        order.trackingCarrier,
+        {
+          tag: `etsy-${order.etsyReceiptId.toString().slice(0, 20)}`,
+          remark: `Etsy receipt ${order.etsyReceiptId}`,
+        },
+      );
 
-      if (result.accepted.length > 0) {
-        const accepted = result.accepted[0];
+      // Call register with the proper item
+      const result = await tracking17.registerTrackings([item]);
+      const accepted = result.accepted[0];
+      const rejected = result.rejected[0] as
+        | { carrier?: number; error?: { code?: number; message?: string } }
+        | undefined;
+
+      // Handle accepted
+      if (accepted) {
         return {
           slug: accepted.carrier ? String(accepted.carrier) : null,
           track_info: accepted.track_info,
         };
       }
-      // Handle "already registered" as success
-      if (result.rejected.length > 0) {
-        const rej = result.rejected[0] as {
-          number?: string;
-          carrier?: number;
-          error?: { code?: number; message?: string };
+      // Handle "already registered" (use returned carrier)
+      if (rejected?.error?.code === -18019901 && rejected.carrier) {
+        return {
+          slug: String(rejected.carrier),
+          track_info: undefined,
         };
-        // -18019901 = already registered (success case)
-        if (rej.error?.code === -18019901) {
-          return {
-            slug: rej.carrier ? String(rej.carrier) : null,
-            track_info: undefined,
-          };
-        }
+      }
+      // Other rejections
+      if (rejected?.error) {
         logger.warn("17TRACK rejected tracking", {
           number: order.trackingNumber,
-          error: rej.error,
+          error: rejected.error,
         });
-        return null;
       }
       return null;
     } catch (err) {
@@ -108,8 +118,7 @@ export const trackingService = {
       try {
         // 17TRACK may need a few seconds to propagate registration,
         // so first try with carrier (most common case). If rejected
-        // as "not registered", try once more without carrier (will work
-        // for tracking numbers that were registered in earlier session).
+        // as "not registered", try once more without carrier.
         let result = await tracking17.getTrackInfo([
           { number: order.trackingNumber, carrier: Number(carrier) },
         ]);
@@ -123,11 +132,9 @@ export const trackingService = {
 
         if (result.accepted.length === 0) {
           // Not found — might be invalid number or not yet registered
-          // (17TRACK can take a few seconds to propagate registration)
           if (result.rejected.length > 0) {
             const errCode = result.rejected[0].error?.code;
             if (errCode === -18019902) {
-              // Not registered yet — skip silently, next refresh will pick up
               logger.debug("17TRACK tracking not yet registered", {
                 number: order.trackingNumber,
               });
@@ -210,7 +217,6 @@ export const trackingService = {
       return { pushed: 0, total: 0 };
     }
 
-    const { prisma } = await import("../db");
     const orders = await prisma.order.findMany({
       where: {
         trackingNumber: { not: null },
