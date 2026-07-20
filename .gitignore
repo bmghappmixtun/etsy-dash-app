@@ -59,3 +59,5 @@ next-env.d.ts
 # OS
 .DS_Store
 Thumbs.db
+lib/tracking17/data/carriers.json
+lib/tracking17/data/etsy-to-17track-mapping.txt
