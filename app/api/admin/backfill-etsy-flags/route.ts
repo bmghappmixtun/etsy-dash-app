@@ -57,6 +57,13 @@ export async function POST(req: NextRequest) {
       const wasShipped = Boolean(receipt.was_shipped);
       const wasDelivered = Boolean(receipt.was_delivered);
 
+      logger.info(`Backfill receipt ${order.etsyReceiptId}`, {
+        wasShipped,
+        wasDelivered,
+        receiptStatus: receipt.status,
+        raw: { was_shipped: receipt.was_shipped, was_delivered: receipt.was_delivered },
+      });
+
       if (!wasShipped && !wasDelivered) continue;
 
       const data: {
