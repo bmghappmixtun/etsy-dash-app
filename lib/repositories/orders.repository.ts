@@ -185,7 +185,7 @@ export const ordersRepository = {
         // Hybrid: skip if Etsy already says delivered (terminal truth).
         // was_delivered flag is unreliable, so also check receiptStatus.
         wasDelivered: false,
-        receiptStatus: { not: "Completed" },
+        receiptStatus: { notIn: ["Completed", "completed", "Canceled", "canceled"] },
         status: { not: "DELIVERED" },
         OR: [
           { lastTrackingUpdate: null },

@@ -40,12 +40,19 @@ export function getCurrencyCode(
  */
 export type EtsyReceiptStatus =
   | "open"
+  | "Open"
   | "paid"
+  | "Paid"
   | "completed"
+  | "Completed"
   | "payment processing"
+  | "Payment Processing"
   | "canceled"
+  | "Canceled"
   | "fully refunded"
-  | "partially refunded";
+  | "Fully Refunded"
+  | "partially refunded"
+  | "Partially Refunded";
 
 export interface EtsyTokenResponse {
   access_token: string;
@@ -156,15 +163,20 @@ export function mapEtsyReceiptStatusToApp(
   | "FAILED_ATTEMPT"
   | "AVAILABLE_FOR_PICKUP"
   | "UNKNOWN" {
-  if (status === "canceled") return "EXCEPTION";
-  if (status === "fully refunded" || status === "partially refunded")
+  if (status === "canceled" || status === "Canceled") return "EXCEPTION";
+  if (
+    status === "fully refunded" ||
+    status === "Fully Refunded" ||
+    status === "partially refunded" ||
+    status === "Partially Refunded"
+  )
     return "EXCEPTION";
-  // Etsy "completed" = order is done from Etsy's side. Even if was_shipped/
+  // Etsy "Completed" = order is done from Etsy's side. Even if was_shipped/
   // was_delivered flags are false (carrier didn't ping back), the order is
   // terminal. Trust this signal as the primary "delivered" source.
-  if (status === "completed") return "DELIVERED";
+  if (status === "completed" || status === "Completed") return "DELIVERED";
   if (wasDelivered === true) return "DELIVERED";
   if (wasShipped) return "IN_TRANSIT";
-  if (status === "paid") return "PRE_TRANSIT";
+  if (status === "paid" || status === "Paid") return "PRE_TRANSIT";
   return "UNKNOWN";
 }

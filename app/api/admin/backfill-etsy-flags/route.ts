@@ -39,6 +39,8 @@ export async function POST(req: NextRequest) {
     where: {
       // Skip orders that already have a final status (delivered/exceptions)
       status: { notIn: ["DELIVERED", "EXCEPTION", "CANCELLED", "RETURNED", "DESTROYED", "REJECTED", "LOST"] },
+      // Also skip if Etsy receiptStatus is already terminal
+      receiptStatus: { notIn: ["Completed", "completed", "Canceled", "canceled"] },
       createdAt: {
         gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       },

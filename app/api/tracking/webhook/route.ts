@@ -97,7 +97,9 @@ export async function POST(req: NextRequest) {
         // Etsy's `was_delivered` flag is unreliable (only true if carrier pings back),
         // so we also trust `receiptStatus === "Completed"`.
         const isEtsyTerminal =
-          order.wasDelivered || order.receiptStatus === "Completed";
+          order.wasDelivered ||
+          order.receiptStatus === "Completed" ||
+          order.receiptStatus === "completed";
         if (isEtsyTerminal) {
           // Etsy already says done - don't override with 17TRACK
           if (order.status !== "DELIVERED") {
