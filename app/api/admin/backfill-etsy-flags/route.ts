@@ -46,6 +46,14 @@ export async function POST(req: NextRequest) {
   let updated = 0;
   let statusChanged = 0;
   const errors: Array<{ id: string; error: string }> = [];
+  const samples: Array<{
+    etsyReceiptId: string;
+    was_shipped: unknown;
+    was_delivered: unknown;
+    status: string;
+    wasShipped: boolean;
+    wasDelivered: boolean;
+  }> = [];
 
   for (const order of orders) {
     try {
@@ -57,12 +65,17 @@ export async function POST(req: NextRequest) {
       const wasShipped = Boolean(receipt.was_shipped);
       const wasDelivered = Boolean(receipt.was_delivered);
 
-      logger.info(`Backfill receipt ${order.etsyReceiptId}`, {
-        wasShipped,
-        wasDelivered,
-        receiptStatus: receipt.status,
-        raw: { was_shipped: receipt.was_shipped, was_delivered: receipt.was_delivered },
-      });
+      // DEBUG: collect sample receipts for inspection
+      if (samples.length < 5) {
+        samples.push({
+          etsyReceiptId: order.etsyReceiptId.toString(),
+          was_shipped: receipt.was_shipped,
+          was_delivered: receipt.was_delivered,
+          status: receipt.status,
+          wasShipped,
+          wasDelivered,
+        });
+      }
 
       if (!wasShipped && !wasDelivered) continue;
 
@@ -98,5 +111,6 @@ export async function POST(req: NextRequest) {
     statusChanged,
     errors: errors.length,
     sampleErrors: errors.slice(0, 3),
+    samples,
   });
 }
