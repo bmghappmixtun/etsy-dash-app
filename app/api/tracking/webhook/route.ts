@@ -77,11 +77,36 @@ export async function POST(req: NextRequest) {
         // Find the order by tracking number
         const order = await prisma.order.findFirst({
           where: { trackingNumber: number },
-          select: { id: true, status: true, trackingCarrier: true },
+          select: {
+            id: true,
+            status: true,
+            trackingCarrier: true,
+            wasDelivered: true, // Etsy's terminal truth
+            wasShipped: true,
+            deliveryDate: true,
+          },
         });
 
         if (!order) {
           // Order not found in our DB (might have been deleted, or tracking is not for us)
+          continue;
+        }
+
+        // Hybrid logic: Etsy wins for terminal states (DELIVERED, CANCELLED).
+        // 17TRACK only refines in-flight status (CUSTOMS_HOLD, IN_TRANSIT, EXCEPTION, etc.)
+        if (order.wasDelivered) {
+          // Etsy already says delivered - don't override
+          if (order.status !== "DELIVERED") {
+            await prisma.order.update({
+              where: { id: order.id },
+              data: {
+                status: "DELIVERED",
+                deliveryDate: order.deliveryDate ?? new Date(),
+                lastTrackingUpdate: new Date(),
+              },
+            });
+            updated++;
+          }
           continue;
         }
 

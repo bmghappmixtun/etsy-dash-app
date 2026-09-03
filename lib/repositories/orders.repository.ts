@@ -32,6 +32,8 @@ export const ordersRepository = {
     trackingSlug?: string | null;
     status: OrderStatus;
     receiptStatus?: string | null;
+    wasShipped?: boolean;
+    wasDelivered?: boolean;
     deliveryDate?: Date | null;
     shippedDate?: Date | null;
     lastTrackingUpdate?: Date | null;
@@ -180,6 +182,8 @@ export const ordersRepository = {
     return prisma.order.findMany({
       where: {
         trackingNumber: { not: null },
+        // Hybrid: skip if Etsy already says delivered (terminal truth)
+        wasDelivered: false,
         status: { not: "DELIVERED" },
         OR: [
           { lastTrackingUpdate: null },
