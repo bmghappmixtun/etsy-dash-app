@@ -23,6 +23,7 @@ const PUBLIC_PATHS = [
   "/api/auth/dev-login",
   "/api/health",
   "/api/jobs",
+  "/api/admin/backfill-etsy-flags", // one-time backfill, gated by ?token=
 ];
 
 const SESSION_COOKIE = "etsy_session";
