@@ -37,16 +37,17 @@ export async function POST(req: NextRequest) {
 
   const orders = await prisma.order.findMany({
     where: {
-      // Skip orders that already have a final status (delivered/exceptions)
-      status: { notIn: ["DELIVERED", "EXCEPTION", "CANCELLED", "RETURNED", "DESTROYED", "REJECTED", "LOST"] },
-      // Also skip if Etsy receiptStatus is already terminal
-      receiptStatus: { notIn: ["Completed", "completed", "Canceled", "canceled"] },
+      // Process orders that haven't been correctly mapped yet.
+      // Skip if status is already a clear terminal (DELIVERED or EXCEPTION).
+      // INCLUDE Completed/Paid orders so we can map them.
+      status: { in: ["UNKNOWN", "PRE_TRANSIT", "IN_TRANSIT", "AVAILABLE_FOR_PICKUP", "FAILED_ATTEMPT"] },
       createdAt: {
         gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       },
     },
-    select: { id: true, etsyReceiptId: true, status: true, deliveryDate: true },
+    select: { id: true, etsyReceiptId: true, status: true, deliveryDate: true, receiptStatus: true },
     take: limit,
+    orderBy: { createdAt: "desc" },
   });
 
   logger.info(`Backfill: processing ${orders.length} orders (${days}d window, limit ${limit})`);
