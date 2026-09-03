@@ -130,6 +130,8 @@ export async function POST(req: NextRequest) {
     errors: errors.length,
     sampleErrors: errors.slice(0, 3),
     samples,
+    oldestId: orders[0]?.etsyReceiptId.toString() ?? null,
+    newestId: orders[orders.length - 1]?.etsyReceiptId.toString() ?? null,
   });
 }
 
