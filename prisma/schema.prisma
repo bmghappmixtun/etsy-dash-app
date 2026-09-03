@@ -57,6 +57,8 @@ model Order {
   trackingSlug       String?         // AfterShip unique slug
   status             OrderStatus     @default(UNKNOWN)
   receiptStatus      String?         // Etsy's raw status: "paid", "completed", "canceled", etc.
+  wasShipped         Boolean         @default(false) // Etsy's `was_shipped` flag (terminal source of truth)
+  wasDelivered       Boolean         @default(false) // Etsy's `was_delivered` flag (terminal source of truth)
   deliveryDate       DateTime?
   shippedDate        DateTime?
   lastTrackingUpdate DateTime?

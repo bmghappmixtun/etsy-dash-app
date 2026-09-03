@@ -93,6 +93,8 @@ export const ordersService = {
       trackingCarrier,
       status: appStatus,
       receiptStatus: receipt.status, // store Etsy's raw status for reference
+      wasShipped: receipt.was_shipped, // terminal source of truth from Etsy
+      wasDelivered: Boolean(receipt.was_delivered), // terminal source of truth from Etsy
       items: (receipt.transactions ?? []).map((t) => ({
         etsyListingId: BigInt(t.listing_id),
         title: t.title,
