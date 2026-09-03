@@ -156,6 +156,19 @@ export const ordersRepository = {
         where,
         include: {
           orderItems: { select: { id: true, title: true, quantity: true } },
+          // Include latest tracking event so the dashboard can show WHY
+          // an order is in EXCEPTION/CUSTOMS_HOLD/etc. (1 row, latest first)
+          trackingEvents: {
+            orderBy: { eventDate: "desc" },
+            take: 1,
+            select: {
+              status: true,
+              appStatus: true,
+              description: true,
+              location: true,
+              eventDate: true,
+            },
+          },
         },
         orderBy: { [sortBy]: sortOrder },
         skip: (page - 1) * pageSize,
