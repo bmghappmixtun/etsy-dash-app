@@ -3,12 +3,17 @@ import { authService } from "@/lib/services/auth.service";
 import { getReceipt } from "@/lib/etsy/client";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { mapEtsyReceiptStatusToApp } from "@/lib/etsy/types";
 
 /**
  * POST /api/admin/backfill-etsy-flags
  *
  * One-time endpoint to backfill wasShipped/wasDelivered for existing orders
  * from Etsy. Safe to call multiple times (idempotent).
+ *
+ * Note: Etsy's `was_shipped` / `was_delivered` flags are unreliable (only set
+ * when carrier pings back). We use `receiptStatus === "Completed"` as the
+ * primary signal for "delivered" via mapEtsyReceiptStatusToApp().
  *
  * Auth: simple shared-secret query param. Set to "disposable" - delete this
  * endpoint after the backfill is complete.
@@ -32,7 +37,8 @@ export async function POST(req: NextRequest) {
 
   const orders = await prisma.order.findMany({
     where: {
-      wasDelivered: false,
+      // Skip orders that already have a final status (delivered/exceptions)
+      status: { notIn: ["DELIVERED", "EXCEPTION", "CANCELLED", "RETURNED", "DESTROYED", "REJECTED", "LOST"] },
       createdAt: {
         gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       },
@@ -48,11 +54,11 @@ export async function POST(req: NextRequest) {
   const errors: Array<{ id: string; error: string }> = [];
   const samples: Array<{
     etsyReceiptId: string;
-    was_shipped: unknown;
-    was_delivered: unknown;
-    status: string;
+    etsyStatus: string;
     wasShipped: boolean;
     wasDelivered: boolean;
+    mappedAppStatus: string;
+    wasUpdated: boolean;
   }> = [];
 
   for (const order of orders) {
@@ -64,32 +70,41 @@ export async function POST(req: NextRequest) {
       );
       const wasShipped = Boolean(receipt.was_shipped);
       const wasDelivered = Boolean(receipt.was_delivered);
+      // Use the new mapping that trusts Etsy's "Completed" status
+      const mappedStatus = mapEtsyReceiptStatusToApp(
+        receipt.status,
+        wasShipped,
+        wasDelivered,
+      );
 
-      // DEBUG: collect sample receipts for inspection
       if (samples.length < 5) {
         samples.push({
           etsyReceiptId: order.etsyReceiptId.toString(),
-          was_shipped: receipt.was_shipped,
-          was_delivered: receipt.was_delivered,
-          status: receipt.status,
+          etsyStatus: receipt.status,
           wasShipped,
           wasDelivered,
+          mappedAppStatus: mappedStatus,
+          wasUpdated: false,
         });
       }
-
-      if (!wasShipped && !wasDelivered) continue;
 
       const data: {
         wasShipped: boolean;
         wasDelivered: boolean;
-        status?: "DELIVERED";
+        status?: typeof mappedStatus;
         deliveryDate?: Date;
       } = { wasShipped, wasDelivered };
 
-      if (wasDelivered && order.status !== "DELIVERED") {
-        data.status = "DELIVERED";
-        data.deliveryDate = new Date();
+      // If the mapped status differs from current, update it
+      if (mappedStatus !== order.status) {
+        data.status = mappedStatus;
+        if (mappedStatus === "DELIVERED" && !order.deliveryDate) {
+          data.deliveryDate = new Date();
+        }
         statusChanged++;
+        if (samples.length > 0 && samples[samples.length - 1].etsyReceiptId === order.etsyReceiptId.toString()) {
+          samples[samples.length - 1].wasUpdated = true;
+        }
       }
 
       await prisma.order.update({
@@ -114,3 +129,4 @@ export async function POST(req: NextRequest) {
     samples,
   });
 }
+

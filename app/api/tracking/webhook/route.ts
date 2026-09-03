@@ -81,8 +81,9 @@ export async function POST(req: NextRequest) {
             id: true,
             status: true,
             trackingCarrier: true,
-            wasDelivered: true, // Etsy's terminal truth
+            wasDelivered: true, // Etsy's terminal truth (from was_delivered flag)
             wasShipped: true,
+            receiptStatus: true, // Etsy's raw status ("Completed" is the real "delivered" signal)
             deliveryDate: true,
           },
         });
@@ -92,10 +93,13 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Hybrid logic: Etsy wins for terminal states (DELIVERED, CANCELLED).
-        // 17TRACK only refines in-flight status (CUSTOMS_HOLD, IN_TRANSIT, EXCEPTION, etc.)
-        if (order.wasDelivered) {
-          // Etsy already says delivered - don't override
+        // Hybrid logic: Etsy wins for terminal states.
+        // Etsy's `was_delivered` flag is unreliable (only true if carrier pings back),
+        // so we also trust `receiptStatus === "Completed"`.
+        const isEtsyTerminal =
+          order.wasDelivered || order.receiptStatus === "Completed";
+        if (isEtsyTerminal) {
+          // Etsy already says done - don't override with 17TRACK
           if (order.status !== "DELIVERED") {
             await prisma.order.update({
               where: { id: order.id },

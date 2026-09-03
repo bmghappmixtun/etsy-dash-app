@@ -159,6 +159,10 @@ export function mapEtsyReceiptStatusToApp(
   if (status === "canceled") return "EXCEPTION";
   if (status === "fully refunded" || status === "partially refunded")
     return "EXCEPTION";
+  // Etsy "Completed" = order is done from Etsy's side. Even if was_shipped/
+  // was_delivered flags are false (carrier didn't ping back), the order is
+  // terminal. Trust this signal as the primary "delivered" source.
+  if (status === "Completed") return "DELIVERED";
   if (wasDelivered === true) return "DELIVERED";
   if (wasShipped) return "IN_TRANSIT";
   if (status === "paid") return "PRE_TRANSIT";

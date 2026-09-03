@@ -182,8 +182,10 @@ export const ordersRepository = {
     return prisma.order.findMany({
       where: {
         trackingNumber: { not: null },
-        // Hybrid: skip if Etsy already says delivered (terminal truth)
+        // Hybrid: skip if Etsy already says delivered (terminal truth).
+        // was_delivered flag is unreliable, so also check receiptStatus.
         wasDelivered: false,
+        receiptStatus: { not: "Completed" },
         status: { not: "DELIVERED" },
         OR: [
           { lastTrackingUpdate: null },
