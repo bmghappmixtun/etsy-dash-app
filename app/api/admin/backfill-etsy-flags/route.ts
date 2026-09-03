@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       },
     },
-    select: { id: true, etsyReceiptId: true, status: true },
+    select: { id: true, etsyReceiptId: true, status: true, deliveryDate: true },
     take: limit,
   });
 
