@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     },
     select: { id: true, etsyReceiptId: true, status: true, deliveryDate: true, receiptStatus: true },
     take: limit,
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: "asc" }, // oldest first to drain UNKNOWN backlogs
   });
 
   logger.info(`Backfill: processing ${orders.length} orders (${days}d window, limit ${limit})`);
