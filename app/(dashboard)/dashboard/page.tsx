@@ -21,6 +21,7 @@ import { analyticsService } from "@/lib/services/analytics.service";
 import { ordersRepository } from "@/lib/repositories/orders.repository";
 import { formatCurrency, relativeTime } from "@/lib/utils";
 import { getCountryInfo } from "@/lib/countries";
+import { getExceptionReason } from "@/lib/utils-exception";
 
 export const metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -112,22 +113,43 @@ export default async function DashboardPage() {
           <CardContent className="space-y-2">
             {needsAttention.items.map((order) => {
               const country = getCountryInfo(order.country);
+              const lastEvent = order.trackingEvents?.[0] ?? null;
+              const reason = getExceptionReason(order.receiptStatus, lastEvent);
               return (
                 <Link
                   key={order.id}
                   href={`/orders/${order.id}`}
                   className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-accent transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono text-xs shrink-0">
                       #{order.etsyReceiptId.toString()}
                     </span>
-                    <span className="font-medium">{order.buyerName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {country.flag} {order.country}
-                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium truncate">
+                          {order.buyerName}
+                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {country.flag} {order.country}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs">
+                        <span className="text-destructive font-medium">
+                          {reason.label}
+                        </span>
+                        {reason.detail && (
+                          <>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground truncate">
+                              {reason.detail}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 shrink-0">
                     <StatusBadge status={order.status} />
                     <span className="text-xs text-muted-foreground">
                       {relativeTime(order.lastTrackingUpdate)}
